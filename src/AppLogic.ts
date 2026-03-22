@@ -27,6 +27,13 @@ export function fmt(d: Date | null | undefined, f: string): string {
 }
 
 export function getQ(d: Date | null | undefined): number { if(!d)return 0; const m=d.getMonth(); return m>=3&&m<=5?1:m>=6&&m<=8?2:m>=9&&m<=11?3:4; }
+export function getFY(d: Date | null | undefined): string {
+  if(!d) return "";
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const start = m <= 2 ? y - 1 : y;
+  return `${String(start).slice(2)}-${String(start + 1).slice(2)}`;
+}
 
 export const TF = fmt(new Date(),"dmy"), TI = fmt(new Date(),"iso");
 
@@ -51,6 +58,8 @@ export function fv(r: any,...kk: string[]): string {for(const k of kk)if(r[k]?.t
 export interface Ticket {
   qtr: string;
   quarterNum: number;
+  fiscalYear: string;
+  qtrLabel: string;
   inBucket: string;
   date: string;
   age: number;
@@ -71,6 +80,8 @@ export interface Ticket {
 
 export function mapRow(r: any): Ticket {
   const pd=tryParse(fv(r,"date")),my=pd?fmt(pd,"my"):"Unknown",qn=pd?getQ(pd):parseInt(fv(r,"qtr"))||0;
+  const fy=pd?getFY(pd):"";
+  const ql=fy?`Q${qn} (${fy})`:`Q${qn}`;
   const rc=fv(r,"closure date","closuredate"); let cd=rc; if(rc){const p=tryParse(rc);if(p)cd=fmt(p,"dmy");}
   const rs=fv(r,"closure status","closer status","status","closure_status","closer_status");
   let cs=rs; const sl=rs.toLowerCase();
@@ -93,7 +104,7 @@ export function mapRow(r: any): Ticket {
     isG1:fv(r,"is g1?","is g1"),
     qualityCheckKKJ:fv(r,"quality check (kkj)","quality check kkj"),
     accountName:fv(r,"account name")||"Unknown",
-    monthYear:my, quarterNum:qn,
+    monthYear:my, quarterNum:qn, fiscalYear:fy, qtrLabel:ql
   };
 }
 
@@ -235,13 +246,14 @@ export function buildM(T: Ticket[]): Metrics {
   };
 }
 
-export function buildS(T: Ticket[]): SPOCSummary[] {
-  return[...new Set(T.map(t=>t.spocPrimary))].filter(Boolean).sort().map(s=>{
-    const r=T.filter(t=>t.spocPrimary===s),ad=r.filter(t=>(t.timelineAdherence||"").toLowerCase()==="adhered").length,dl=r.filter(t=>(t.timelineAdherence||"").toLowerCase()==="delayed").length;
+export function buildS(T: Ticket[], names?: string[]): SPOCSummary[] {
+  const list = names || [...new Set(T.map(t=>t.spocPrimary))].filter(Boolean).sort();
+  return list.map(s=>{
+    const r=T.filter(t=>t.spocPrimary===s),ad=r.filter(t=>(t.timelineAdherence||"").toLowerCase().trim()==="adhered").length,dl=r.filter(t=>(t.timelineAdherence||"").toLowerCase().trim()==="delayed").length;
     return{name:s as string,total:r.length,open:r.filter(t=>t.closureStatus==="Open").length,closed:r.filter(t=>t.closureStatus==="Closed").length,
       resolved:r.filter(t=>t.closureStatus==="Resolved").length,pending:r.filter(t=>t.closureStatus==="Pending").length,
-      ideas:r.filter(t=>(t.isIdea||"").toLowerCase()==="yes").length,bugs:r.filter(t=>(t.isBug||"").toLowerCase()==="yes").length,
-      g1:r.filter(t=>(t.isG1||"").toLowerCase()==="yes").length,adhered:ad,delayed:dl,pct:(ad+dl)?Math.round(ad/(ad+dl)*100):0};
+      ideas:r.filter(t=>(t.isIdea||"").toLowerCase().trim()==="yes").length,bugs:r.filter(t=>(t.isBug||"").toLowerCase().trim()==="yes").length,
+      g1:r.filter(t=>(t.isG1||"").toLowerCase().trim()==="yes").length,adhered:ad,delayed:dl,pct:(ad+dl)?Math.round(ad/(ad+dl)*100):0};
   }).sort((a,b)=>b.total-a.total);
 }
 

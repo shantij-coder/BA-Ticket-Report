@@ -60,7 +60,7 @@ export default function App(){
   const [chartsOpen,setChartsOpen]=useState(false);
   const [activeTab,setActiveTab]=useState("load");
   const [kkjType,setKkjType]=useState("idea");
-  const [filters,setFilters]=useState({qtr:"",month:"",spoc:"",priority:"",status:"",type:""});
+  const [filters,setFilters]=useState({fy:"",qtr:"",month:"",spoc:"",priority:"",status:"",type:""});
   const [tickets,setTickets]=useState<Ticket[]>([]);
   const [status,setStatus]=useState("loading");
   const [err,setErr]=useState("");
@@ -85,7 +85,7 @@ export default function App(){
 
   useEffect(()=>{load();},[load]);
 
-  const rf=()=>setFilters({qtr:"",month:"",spoc:"",priority:"",status:"",type:""});
+  const rf=()=>setFilters({fy:"",qtr:"",month:"",spoc:"",priority:"",status:"",type:""});
 
   const pool=useMemo(()=>tickets.filter(t=>{
     const b=ib(t);
@@ -94,7 +94,8 @@ export default function App(){
   }),[tickets,ibON]);
 
   const fil=useMemo(()=>pool.filter(t=>{
-    if(filters.qtr&&String(t.quarterNum)!==filters.qtr)return false;
+    if(filters.fy&&t.fiscalYear!==filters.fy)return false;
+    if(filters.qtr&&t.qtrLabel!==filters.qtr)return false;
     if(filters.month&&t.monthYear!==filters.month)return false;
     if(filters.spoc&&t.spocPrimary!==filters.spoc)return false;
     if(filters.priority&&t.priority!==filters.priority)return false;
@@ -108,20 +109,29 @@ export default function App(){
     return true;
   }),[pool,filters]);
 
-  const M: Metrics=useMemo(()=>buildM(fil),[fil]);
-  const SD: SPOCSummary[]=useMemo(()=>buildS(fil),[fil]);
-  const TD=useMemo(()=>buildTr(pool),[pool]);
-  const KD=useMemo(()=>buildK(fil,kkjType),[fil,kkjType]);
-
   const fo=useMemo(()=>{
     const sp=[...new Set(pool.map(t=>t.spocPrimary))].filter(Boolean).sort();
     const pr=["Urgent","High","Medium","Low"].filter(p=>pool.some(t=>t.priority===p));
     const st=[...new Set(pool.map(t=>t.closureStatus))].filter(Boolean).sort();
-    const qp=filters.qtr?pool.filter(t=>String(t.quarterNum)===filters.qtr):pool;
+    const fyList=[...new Set(pool.map(t=>t.fiscalYear))].filter(Boolean).sort();
+    
+    const yp=filters.fy?pool.filter(t=>t.fiscalYear===filters.fy):pool;
+    const qp=filters.qtr?yp.filter(t=>t.qtrLabel===filters.qtr):yp;
+    
     const mo=[...new Set(qp.map(t=>t.monthYear))].filter(m=>m!=="Unknown").sort((a,b)=>MO.indexOf(a as string)-MO.indexOf(b as string));
-    const qt=[...new Set(pool.map(t=>String(t.quarterNum)))].filter(Boolean).sort();
-    return{sp,pr,st,mo,qt};
-  },[pool,filters.qtr]);
+    const qt=[...new Set(yp.map(t=>t.qtrLabel))].filter(Boolean).sort((a,b)=>{
+      const sa = a as string, sb = b as string;
+      const ay=sa.match(/\((\d+-\d+)\)/)?.[1]||"", by=sb.match(/\((\d+-\d+)\)/)?.[1]||"";
+      if(ay!==by) return ay.localeCompare(by);
+      return sa.localeCompare(sb);
+    });
+    return{sp,pr,st,mo,qt,fyList};
+  },[pool,filters.qtr,filters.fy]);
+
+  const M: Metrics=useMemo(()=>buildM(fil),[fil]);
+  const SD: SPOCSummary[]=useMemo(()=>buildS(fil, filters.spoc ? [filters.spoc] : fo.sp),[fil, filters.spoc, fo.sp]);
+  const TD=useMemo(()=>buildTr(fil),[fil]);
+  const KD=useMemo(()=>buildK(fil,kkjType),[fil,kkjType]);
 
   const TT={backgroundColor:dark?"#131722":"#fff",borderColor:dark?"#232a3e":"#dde1ed",borderRadius:8,fontSize:11};
   const sel=(d=false)=>({height:32,padding:"0 8px",background:sbg,border:`1px solid ${cbd}`,color:d?ts:tp,borderRadius:8,fontSize:11,fontWeight:500,outline:"none",cursor:d?"not-allowed":"pointer",opacity:d?.5:1});
@@ -181,26 +191,33 @@ export default function App(){
             <div style={{position:"absolute",top:3,left:3,width:14,height:14,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.2)",transform:ibON?"translateX(16px)":"none",transition:"transform .2s"}}/>
           </button>
           <span style={{fontSize:10,fontWeight:700,whiteSpace:"nowrap",color:ibON?C_.primary:C_.warning}}>
-            {ibON?"Bucketed view · filters locked":"Historical view · filters enabled"}
+            {ibON?"Bucketed view · filters enabled":"Historical view · filters enabled"}
           </span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
           <span style={{fontSize:10,fontWeight:700,color:ts,textTransform:"uppercase"}}>Filter</span>
-          {[["qtr","All Quarters",fo.qt.map(q=>({v:q,l:`Q${q}`}))],
+          {[["fy","FY",fo.fyList.map(f=>({v:f,l:`FY ${f}`}))],
+            ["qtr","All Quarters",fo.qt.map(q=>({v:q,l:q}))],
             ["month","All Months",fo.mo.map(m=>({v:m,l:m}))],
             ["spoc","All SPOCs",fo.sp.map(s=>({v:s,l:s}))],
             ["priority","All Priority",fo.pr.map(p=>({v:p,l:p}))],
             ["status","All Status",fo.st.map(s=>({v:s,l:s}))],
             ["type","All Types",[{v:"idea",l:"Ideas"},{v:"bug",l:"Bugs"},{v:"g1",l:"G1"}]],
           ].map(([key,ph,opts])=>(
-            <select key={key} disabled={ibON} value={filters[key]}
-              onChange={e=>{const n={...filters,[key]:e.target.value};if(key==="qtr")n.month="";setFilters(n);}}
-              style={sel(ibON)}>
+            <select key={key} value={filters[key as keyof typeof filters]}
+              onChange={e=>{
+                const val = e.target.value;
+                const n={...filters,[key]:val};
+                if(key==="fy"){n.qtr=""; n.month="";}
+                if(key==="qtr")n.month="";
+                setFilters(n);
+              }}
+              style={sel(false)}>
               <option value="">{ph}</option>
               {opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
             </select>
           ))}
-          <button disabled={ibON} onClick={rf} style={{height:32,padding:"0 12px",borderRadius:8,border:`1px solid ${cbd}`,background:"transparent",color:ts,fontSize:11,fontWeight:700,cursor:ibON?"not-allowed":"pointer",opacity:ibON?.5:1}}>↺ Reset</button>
+          <button onClick={rf} style={{height:32,padding:"0 12px",borderRadius:8,border:`1px solid ${cbd}`,background:"transparent",color:ts,fontSize:11,fontWeight:700,cursor:"pointer"}}>↺ Reset</button>
         </div>
       </div>
 
