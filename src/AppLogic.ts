@@ -119,9 +119,9 @@ export const ib= (t: any) =>["yes","y","true","1"].includes((t.inBucket||"").toL
 export const ia= (t: any) =>!["closed","resolved"].includes(t.closureStatus.toLowerCase().trim());
 
 /* ── Colours ─────────────────────────────────────────────────────────────── */
-export const C={primary:"#4763f5",success:"#15803d",warning:"#b45309",error:"#b91c1c",violet:"#6d28d9",text3:"#8e97b0"};
-export const CD={primary:"#5b78ff",success:"#4ade80",warning:"#fbbf24",error:"#f87171",violet:"#a78bfa",text3:"#4e5a7a"};
-export const SC: Record<string, string>={SBJ:"#4763f5",MG:"#7c3aed",CS:"#d97706",DD:"#be185d",HC:"#15803d",KKJ:"#0369a1",Unassigned:"#8e97b0"};
+export const C={primary:"#3b52d4",success:"#166534",warning:"#92400e",error:"#991b1b",violet:"#5b21b6",text3:"#64748b"};
+export const CD={primary:"#6366f1",success:"#22c55e",warning:"#f59e0b",error:"#ef4444",violet:"#8b5cf6",text3:"#94a3b8"};
+export const SC: Record<string, string>={SBJ:"#3b52d4",MG:"#7c3aed",CS:"#d97706",DD:"#be185d",HC:"#166534",KKJ:"#0369a1",Unassigned:"#64748b"};
 export function abg(p: number,cl?: any){const c=cl||C;return p>=80?c.success:p>=60?c.warning:c.error;}
 
 export const SHEET_NAME  = "FY 25-26";
@@ -129,42 +129,14 @@ export const PUBHTML_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTv3
 
 /* ── Fetch via Anthropic API ─────────────────────────────────────────────── */
 export async function fetchSheetData() {
-  // Note: This implementation is as provided by the user.
-  // In a real environment, this would require an API key and potentially a backend proxy.
-  // For demonstration, we'll try to fetch directly if possible or use a fallback.
+  const csvUrl = PUBHTML_URL.replace("/pubhtml", "/pub?output=csv");
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        // "x-api-key": "YOUR_API_KEY" // This would be needed
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 8000,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{
-          role: "user",
-          content: `Fetch the content of this Google Sheets published page: ${PUBHTML_URL}
-
-Extract ALL the data rows from the spreadsheet table and return them as CSV.
-The columns are: Qtr,In Bucket,Date,Adherence Date,Last date for adherence,Age,Timeline Adherence,Ticket no.,Case Number,Subject,SPOC (Primary),SPOC (Secondary),Quality Check (DD),Priority,Is IDEA ?,Is idea Urgent?,Is Bug? (ERP/POS),Is G1?,Closure Date,Delay Reason,Adjusted Adherence status,Quality Check (KKJ),Review Date (KKJ),Remarks by KKJ,Closure status,Understanding/Update,Jira Id/Dev id,Update,Remarks (Optional),Account Name,BA Code
-
-Return ONLY raw CSV data starting with the header row. No markdown, no explanation, no code blocks. Wrap values containing commas in double quotes.`
-        }]
-      })
-    });
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    const data = await res.json();
-    const text = (data.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n").trim();
-    if (!text || text.length < 200) throw new Error("Empty response from API");
-    return text;
-  } catch (e) {
-    // Fallback: Try to fetch the CSV directly if the sheet is published as CSV
-    const csvUrl = PUBHTML_URL.replace("/pubhtml", "/pub?output=csv");
     const res = await fetch(csvUrl);
-    if (!res.ok) throw e;
+    if (!res.ok) throw new Error(`Failed to fetch CSV: ${res.status}`);
     return await res.text();
+  } catch (e: any) {
+    console.error("Fetch failed:", e.message);
+    throw new Error(`Could not load data from Google Sheets. Please ensure the sheet is published to web as CSV. (${e.message})`);
   }
 }
 
@@ -211,9 +183,17 @@ export interface SPOCSummary {
 export interface TrendData {
   name: string;
   Total: number;
+  InBucket: number;
+  OutBucket: number;
   Closed: number;
   Open: number;
   Resolved: number;
+  O: number;
+  P: number;
+  W: number;
+  B: number;
+  RC: number;
+  OpeningBalance: number;
 }
 
 export interface QualityData {
@@ -257,11 +237,111 @@ export function buildS(T: Ticket[], names?: string[]): SPOCSummary[] {
   }).sort((a,b)=>b.total-a.total);
 }
 
-export function buildTr(T: Ticket[]): TrendData[] {
-  return[...new Set(T.map(t=>t.monthYear))].filter(m=>m!=="Unknown").sort((a,b)=>MO.indexOf(a as string)-MO.indexOf(b as string)).map(m=>{
-    const mt=T.filter(t=>t.monthYear===m);
-    return{name:(m as string).replace(" 20","'"),Total:mt.length,Closed:mt.filter(t=>t.closureStatus==="Closed").length,Open:mt.filter(t=>t.closureStatus==="Open").length,Resolved:mt.filter(t=>t.closureStatus==="Resolved").length};
-  });
+export function buildTr(T: Ticket[], isWeekly: boolean): TrendData[] {
+  if (isWeekly) {
+    const allDates = T.map(t => tryParse(t.date)).filter((d): d is Date => d !== null);
+    if (allDates.length === 0) return [];
+    
+    const sortedDates = allDates.sort((a, b) => a.getTime() - b.getTime());
+    const start = new Date(sortedDates[0]);
+    start.setHours(0, 0, 0, 0);
+    
+    // Align to Monday (1=Mon, 0=Sun)
+    const day = start.getDay();
+    const diff = start.getDate() - day + (day === 0 ? -6 : 1);
+    start.setDate(diff);
+
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    
+    const weeks: TrendData[] = [];
+    let curr = new Date(start);
+
+    while (curr <= end) {
+      const wStart = new Date(curr);
+      const wEnd = new Date(curr);
+      wEnd.setDate(curr.getDate() + 6);
+      wEnd.setHours(23, 59, 59, 999);
+      
+      const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const label = `${wStart.getDate()} ${mon[wStart.getMonth()]} - ${wEnd.getDate()} ${mon[wEnd.getMonth()]}`;
+      
+      const inWeek = T.filter(t => {
+        const d = tryParse(t.date);
+        return d && d >= wStart && d <= wEnd;
+      });
+
+      const bucketed = inWeek.filter(ib);
+      
+      // Opening Balance for the week: Tickets created before wStart and (not closed or closed after wStart)
+      // PLUS tickets created during the week (since they contribute to the "load" of that week)
+      // Actually, standard definition: Open at start of period.
+      const openAtStart = T.filter(t => {
+        const cd = tryParse(t.date);
+        const cld = tryParse(t.closureDate);
+        const createdBefore = cd && cd < wStart;
+        const notClosedYet = !cld || cld >= wStart;
+        return createdBefore && notClosedYet;
+      }).length;
+
+      weeks.push({
+        name: label,
+        Total: inWeek.length,
+        InBucket: bucketed.length,
+        OutBucket: inWeek.filter(t => !ib(t)).length,
+        Closed: inWeek.filter(t => t.closureStatus === "Closed").length,
+        Open: inWeek.filter(t => t.closureStatus === "Open").length,
+        Resolved: inWeek.filter(t => t.closureStatus === "Resolved").length,
+        O: inWeek.filter(t => t.closureStatus === "Open").length,
+        P: inWeek.filter(t => t.closureStatus === "Pending").length,
+        W: inWeek.filter(t => t.closureStatus.toLowerCase().includes("waiting")).length,
+        B: inWeek.filter(t => !t.closureStatus || !t.closureStatus.trim()).length,
+        RC: inWeek.filter(t => ["closed", "resolved"].includes(t.closureStatus.toLowerCase())).length,
+        OpeningBalance: openAtStart
+      });
+
+      curr.setDate(curr.getDate() + 7);
+    }
+    return weeks.slice(-12);
+  } else {
+    const parse = (s: string) => {
+      const [m, y] = (s as string).split(" ");
+      const mi = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(m);
+      return new Date(parseInt(y), mi).getTime();
+    };
+    return [...new Set(T.map(t => t.monthYear))].filter(m => m !== "Unknown").sort((a, b) => parse(a as string) - parse(b as string)).map(m => {
+      const mt = T.filter(t => t.monthYear === m);
+      
+      // Find the first day of this month
+      const [monStr, yearStr] = (m as string).split(" ");
+      const monthIdx = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(monStr);
+      const mStart = new Date(parseInt(yearStr), monthIdx, 1);
+
+      const openAtStart = T.filter(t => {
+        const cd = tryParse(t.date);
+        const cld = tryParse(t.closureDate);
+        const createdBefore = cd && cd < mStart;
+        const notClosedYet = !cld || cld >= mStart;
+        return createdBefore && notClosedYet;
+      }).length;
+
+      return {
+        name: (m as string).replace(" 20", "'"),
+        Total: mt.length,
+        InBucket: mt.filter(ib).length,
+        OutBucket: mt.filter(t => !ib(t)).length,
+        Closed: mt.filter(t => t.closureStatus === "Closed").length,
+        Open: mt.filter(t => t.closureStatus === "Open").length,
+        Resolved: mt.filter(t => t.closureStatus === "Resolved").length,
+        O: mt.filter(t => t.closureStatus === "Open").length,
+        P: mt.filter(t => t.closureStatus === "Pending").length,
+        W: mt.filter(t => t.closureStatus.toLowerCase().includes("waiting")).length,
+        B: mt.filter(t => !t.closureStatus || !t.closureStatus.trim()).length,
+        RC: mt.filter(t => ["closed", "resolved"].includes(t.closureStatus.toLowerCase())).length,
+        OpeningBalance: openAtStart
+      };
+    });
+  }
 }
 
 export function buildK(T: Ticket[],kt: string): QualityData[] {

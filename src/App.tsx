@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  PieChart, Pie, Cell, BarChart, Bar, AreaChart, Area, Line
+  PieChart, Pie, Cell, BarChart, Bar, AreaChart, Area, Line, LabelList
 } from "recharts";
 import {
   SHEET_NAME, PUBHTML_URL, fetchSheetData, parseCSV, mapRow, isValid,
@@ -27,28 +27,45 @@ interface StatCardProps {
 
 function StatCard({label,value,sub,vc,icon,info,bd2,dark}: StatCardProps){
   const [ih,setIh]=useState(false);
-  const bg=dark?"#131722":"#fff",bd=dark?"#232a3e":"#e2e8f0",ts=dark?"#8891b0":"#8e97b0";
+  const ts=dark?"#8891b0":"#8e97b0";
+  const cardBg = dark ? `${vc}15` : `${vc}08`;
+  const cardBd = dark ? `${vc}33` : `${vc}20`;
+
   return(
-    <div style={{background:bg,border:`1px solid ${bd}`,borderRadius:12,padding:16,boxShadow:"0 1px 3px rgba(0,0,0,.05)",display:"flex",flexDirection:"column",justifyContent:"center"}}>
-      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:16}}>
-        <div style={{display:"flex",flexDirection:"column"}}>
-          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
-            <span style={{fontSize:10,fontWeight:700,color:ts,textTransform:"uppercase",letterSpacing:".08em"}}>{label}</span>
+    <div 
+      className="flex flex-col justify-center min-h-[110px] p-5 rounded-xl shadow-sm border transition-all hover:shadow-md relative overflow-hidden"
+      style={{background:cardBg, borderColor:cardBd, zIndex: ih ? 30 : 1}}
+    >
+      <div className="flex flex-row items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-bold uppercase tracking-widest" style={{color:ts}}>{label}</span>
             {icon}
-            {info&&<div style={{position:"relative"}} onMouseEnter={()=>setIh(true)} onMouseLeave={()=>setIh(false)}>
-              <Info size={10} style={{color:ts,cursor:"help"}}/>
-              {ih&&<div style={{position:"absolute",bottom:"100%",left:0,marginBottom:8,width:180,padding:"8px 10px",
-                background:dark?"#1a1f30":"#fff",border:`1px solid ${bd}`,borderRadius:8,
-                boxShadow:"0 8px 24px rgba(0,0,0,.12)",zIndex:50,color:dark?"#e8ecf8":"#0f1623"}}>{info}</div>}
-            </div>}
+            {info && (
+              <div className="relative" onMouseEnter={()=>setIh(true)} onMouseLeave={()=>setIh(false)}>
+                <Info size={12} className="cursor-help" style={{color:ts}}/>
+                {ih && (
+                  <div className="absolute top-full left-0 mt-2 w-64 p-4 rounded-xl shadow-2xl z-[100] text-xs border"
+                    style={{
+                      background:dark?"#1a1f30":"#fff",
+                      borderColor:cardBd,
+                      color:dark?"#e8ecf8":"#0f1623"
+                    }}
+                  >
+                    {info}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          <div style={{display:"flex",alignItems:"baseline",gap:8}}>
-            <div style={{fontSize:30,fontWeight:700,color:vc,lineHeight:1}}>{value}</div>
-            <div style={{fontSize:11,color:ts,fontWeight:500}}>{sub}</div>
+          <div className="flex items-baseline gap-2">
+            <div className="text-3xl font-extrabold tracking-tight leading-none" style={{color:vc, textShadow: dark ? `0 0 10px ${vc}33` : 'none'}}>{value}</div>
+            <div className="text-[10px] font-bold uppercase tracking-wider opacity-70" style={{color:ts}}>{sub}</div>
           </div>
         </div>
-        {bd2&&<div style={{borderLeft:`1px solid ${bd}`,paddingLeft:16,display:"flex",alignItems:"center"}}>{bd2}</div>}
+        {bd2 && <div className="hidden sm:flex border-l pl-5 items-center min-h-[48px]" style={{borderColor:cardBd}}>{bd2}</div>}
       </div>
+      {bd2 && <div className="sm:hidden border-t mt-4 pt-4 flex items-center justify-center" style={{borderColor:cardBd}}>{bd2}</div>}
     </div>
   );
 }
@@ -60,6 +77,11 @@ export default function App(){
   const [chartsOpen,setChartsOpen]=useState(false);
   const [activeTab,setActiveTab]=useState("load");
   const [kkjType,setKkjType]=useState("idea");
+  const [showStatusTrend, setShowStatusTrend] = useState(false);
+  const [vis, setVis] = useState<Record<string, boolean>>({
+    Total: false, InBucket: true, OutBucket: true, OpeningBalance: true, Closed: false, Open: false, Resolved: false,
+    O: true, P: true, W: true, B: true, RC: true
+  });
   const [filters,setFilters]=useState({fy:"",qtr:"",month:"",spoc:"",priority:"",status:"",type:""});
   const [tickets,setTickets]=useState<Ticket[]>([]);
   const [status,setStatus]=useState("loading");
@@ -87,11 +109,10 @@ export default function App(){
 
   const rf=()=>setFilters({fy:"",qtr:"",month:"",spoc:"",priority:"",status:"",type:""});
 
-  const pool=useMemo(()=>tickets.filter(t=>{
+  const pool=useMemo(()=>ibON ? tickets.filter(t=>{
     const b=ib(t);
-    if(ibON){return b||(["closed","resolved"].includes(t.closureStatus.toLowerCase())&&t.closureDate===TF);}
-    return !b;
-  }),[tickets,ibON]);
+    return b||(["closed","resolved"].includes(t.closureStatus.toLowerCase())&&t.closureDate===TF);
+  }) : tickets,[tickets,ibON]);
 
   const fil=useMemo(()=>pool.filter(t=>{
     if(filters.fy&&t.fiscalYear!==filters.fy)return false;
@@ -110,15 +131,24 @@ export default function App(){
   }),[pool,filters]);
 
   const fo=useMemo(()=>{
-    const sp=[...new Set(pool.map(t=>t.spocPrimary))].filter(Boolean).sort();
-    const pr=["Urgent","High","Medium","Low"].filter(p=>pool.some(t=>t.priority===p));
-    const st=[...new Set(pool.map(t=>t.closureStatus))].filter(Boolean).sort();
-    const fyList=[...new Set(pool.map(t=>t.fiscalYear))].filter(Boolean).sort();
+    const sp=[...new Set(tickets.map(t=>t.spocPrimary))].filter(Boolean).sort();
+    const pr=["Urgent","High","Medium","Low"];
+    const st=[...new Set(tickets.map(t=>t.closureStatus))].filter(Boolean).sort();
+    if(!st.includes("Closed Today")) st.push("Closed Today");
+    const fyList=[...new Set(tickets.map(t=>t.fiscalYear))].filter(Boolean).sort();
     
-    const yp=filters.fy?pool.filter(t=>t.fiscalYear===filters.fy):pool;
+    const yp=filters.fy?tickets.filter(t=>t.fiscalYear===filters.fy):tickets;
     const qp=filters.qtr?yp.filter(t=>t.qtrLabel===filters.qtr):yp;
     
-    const mo=[...new Set(qp.map(t=>t.monthYear))].filter(m=>m!=="Unknown").sort((a,b)=>MO.indexOf(a as string)-MO.indexOf(b as string));
+    const mo=[...new Set(qp.map(t=>t.monthYear))].filter(m=>m!=="Unknown").sort((a,b)=>{
+      const parse = (s: string) => {
+        const [m, y] = (s as string).split(" ");
+        const mi = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(m);
+        return new Date(parseInt(y), mi).getTime();
+      };
+      return parse(a as string) - parse(b as string);
+    });
+
     const qt=[...new Set(yp.map(t=>t.qtrLabel))].filter(Boolean).sort((a,b)=>{
       const sa = a as string, sb = b as string;
       const ay=sa.match(/\((\d+-\d+)\)/)?.[1]||"", by=sb.match(/\((\d+-\d+)\)/)?.[1]||"";
@@ -126,14 +156,30 @@ export default function App(){
       return sa.localeCompare(sb);
     });
     return{sp,pr,st,mo,qt,fyList};
-  },[pool,filters.qtr,filters.fy]);
+  },[tickets,filters.qtr,filters.fy]);
 
   const M: Metrics=useMemo(()=>buildM(fil),[fil]);
   const SD: SPOCSummary[]=useMemo(()=>buildS(fil, filters.spoc ? [filters.spoc] : fo.sp),[fil, filters.spoc, fo.sp]);
-  const TD=useMemo(()=>buildTr(fil),[fil]);
+  const trendFil=useMemo(()=>tickets.filter(t=>{
+    if(filters.fy&&t.fiscalYear!==filters.fy)return false;
+    if(filters.qtr&&t.qtrLabel!==filters.qtr)return false;
+    if(filters.month&&t.monthYear!==filters.month)return false;
+    if(filters.spoc&&t.spocPrimary!==filters.spoc)return false;
+    if(filters.priority&&t.priority!==filters.priority)return false;
+    if(filters.status){
+      if(filters.status==="Closed Today"){if(!(["closed","resolved"].includes(t.closureStatus.toLowerCase())&&t.closureDate===TF))return false;}
+      else if(t.closureStatus!==filters.status)return false;
+    }
+    if(filters.type==="idea"&&(t.isIdea||"").toLowerCase()!=="yes")return false;
+    if(filters.type==="bug"&&(t.isBug||"").toLowerCase()!=="yes")return false;
+    if(filters.type==="g1"&&(t.isG1||"").toLowerCase()!=="yes")return false;
+    return true;
+  }),[tickets,filters]);
+
+  const TD=useMemo(()=>buildTr(trendFil, ibON),[trendFil, ibON]);
   const KD=useMemo(()=>buildK(fil,kkjType),[fil,kkjType]);
 
-  const TT={backgroundColor:dark?"#131722":"#fff",borderColor:dark?"#232a3e":"#dde1ed",borderRadius:8,fontSize:11};
+  const TT={backgroundColor:dark?"#131722":"#fff",borderColor:dark?"#232a3e":"#dde1ed",borderRadius:8,fontSize:11,color:tp};
   const sel=(d=false)=>({height:32,padding:"0 8px",background:sbg,border:`1px solid ${cbd}`,color:d?ts:tp,borderRadius:8,fontSize:11,fontWeight:500,outline:"none",cursor:d?"not-allowed":"pointer",opacity:d?.5:1});
   const tb=(a)=>({flex:1,padding:"10px 8px",fontSize:11,fontWeight:700,border:"none",borderBottom:a?`2px solid ${C_.primary}`:"2px solid transparent",background:a?cbg:"transparent",color:a?C_.primary:ts,cursor:"pointer"});
 
@@ -160,275 +206,334 @@ export default function App(){
   return(
     <div style={{minHeight:"100vh",background:bg,color:tp,fontFamily:`"Inter",-apple-system,sans-serif`,transition:"all .3s"}}>
       {/* HEADER */}
-      <header style={{position:"sticky",top:0,zIndex:50,background:cbg,borderBottom:`1px solid ${cbd}`,height:56,padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",boxShadow:"0 1px 4px rgba(0,0,0,.06)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:12}}>
-          <div style={{width:32,height:32,borderRadius:8,background:C_.primary,display:"flex",alignItems:"center",justifyContent:"center",boxShadow:`0 4px 12px ${C_.primary}33`}}>
-            <LayoutDashboard size={18} color="#fff"/>
+      <header className="sticky top-0 z-50 flex flex-col sm:flex-row items-center justify-between gap-4 p-4 sm:px-8 shadow-sm transition-all border-b" style={{background:cbg, borderColor:cbd, minHeight:72}}>
+        <div className="flex items-center gap-4 w-full sm:w-auto">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shrink-0" style={{background:C_.primary, boxShadow:`0 4px 12px ${C_.primary}33`}}>
+            <LayoutDashboard size={20} color="#fff"/>
           </div>
-          <div>
-            <div style={{fontSize:13,fontWeight:700,lineHeight:1}}>BA Team · Tickets Dashboard</div>
-            <div style={{fontSize:10,color:ts,marginTop:3,fontWeight:500}}>{SHEET_NAME}{at?` · ${at}`:""}</div>
+          <div className="overflow-hidden">
+            <div className="text-sm sm:text-lg font-black tracking-tighter leading-tight truncate uppercase italic" style={{color:tp}}>BA Team · Tickets Dashboard</div>
+            <div className="text-[10px] sm:text-xs font-bold mt-1 truncate opacity-60" style={{color:ts}}>{SHEET_NAME}{at?` · Last updated: ${at}`:""}</div>
           </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{padding:"4px 12px",background:abg2,borderRadius:999,border:`1px solid ${C_.primary}33`,color:C_.primary,fontSize:10,fontWeight:700}}>
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+          <div className="px-3 py-1 rounded-full border text-[10px] font-bold tracking-wider uppercase" style={{background:abg2, borderColor:`${C_.primary}33`, color:C_.primary}}>
             {fil.length} TICKETS
           </div>
-          <button onClick={load} style={{display:"flex",alignItems:"center",gap:6,height:32,padding:"0 12px",borderRadius:8,border:`1px solid ${cbd}`,background:"transparent",color:tp,fontSize:11,fontWeight:500,cursor:"pointer"}}>
-            <RefreshCw size={12}/> Refresh
-          </button>
-          <button onClick={()=>setDark(d=>!d)} style={{width:32,height:32,borderRadius:8,border:`1px solid ${cbd}`,background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}}>
-            {dark?<Sun size={16} style={{color:"#f59e0b"}}/>:<Moon size={16} style={{color:C_.primary}}/>}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={load} className="flex items-center gap-2 h-9 px-4 rounded-lg border font-semibold text-xs transition-all hover:bg-black/5 active:scale-95" style={{borderColor:cbd, background:"transparent", color:tp}}>
+              <RefreshCw size={14} className={status==="loading"?"animate-spin":""}/> <span className="hidden xs:inline">Refresh</span>
+            </button>
+            <button onClick={()=>setDark(d=>!d)} className="w-9 h-9 rounded-lg border flex items-center justify-center transition-all hover:bg-black/5 active:scale-95" style={{borderColor:cbd, background:"transparent"}}>
+              {dark?<Sun size={18} className="text-amber-500"/>:<Moon size={18} style={{color:C_.primary}}/>}
+            </button>
+          </div>
         </div>
       </header>
 
       {/* FILTER BAR */}
-      <div style={{background:cbg,borderBottom:`1px solid ${cbd}`,padding:"8px 24px",display:"flex",alignItems:"center",gap:12,overflowX:"auto"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,paddingRight:16,borderRight:`1px solid ${cbd}`,flexShrink:0}}>
-          <span style={{fontSize:11,fontWeight:700,color:ts}}>In Bucket</span>
-          <button onClick={()=>{setIbON(v=>!v);rf();}} style={{position:"relative",width:36,height:20,borderRadius:999,background:ibON?C_.primary:(dark?"#2a3050":"#cbd5e1"),border:"none",cursor:"pointer",transition:"background .2s"}}>
-            <div style={{position:"absolute",top:3,left:3,width:14,height:14,borderRadius:"50%",background:"#fff",boxShadow:"0 1px 3px rgba(0,0,0,.2)",transform:ibON?"translateX(16px)":"none",transition:"transform .2s"}}/>
+      <div className="sticky top-[120px] sm:top-[72px] z-40 flex items-center overflow-x-auto no-scrollbar shadow-sm border-b" style={{background:cbg, borderColor:cbd}}>
+        <div className="sticky left-0 z-10 flex items-center gap-3 px-4 sm:pl-8 pr-5 border-r shrink-0 py-3" style={{background:cbg, borderColor:cbd}}>
+          <span className="text-xs font-bold" style={{color:ts}}>In Bucket</span>
+          <button onClick={()=>{setIbON(v=>!v);rf();}} className="relative w-10 h-5 rounded-full transition-colors duration-200 shrink-0" style={{background:ibON?C_.primary:(dark?"#2a3050":"#cbd5e1")}}>
+            <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200" style={{transform:ibON?"translateX(20px)":"none"}}/>
           </button>
-          <span style={{fontSize:10,fontWeight:700,whiteSpace:"nowrap",color:ibON?C_.primary:C_.warning}}>
-            {ibON?"Bucketed view · filters enabled":"Historical view · filters enabled"}
+          <span className="hidden lg:inline text-[10px] font-bold uppercase tracking-wide whitespace-nowrap" style={{color:ibON?C_.primary:C_.warning}}>
+            {ibON?"Bucketed view · filters disabled":"Historical view · filters enabled"}
           </span>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <span style={{fontSize:10,fontWeight:700,color:ts,textTransform:"uppercase"}}>Filter</span>
-          {[["fy","FY",fo.fyList.map(f=>({v:f,l:`FY ${f}`}))],
-            ["qtr","All Quarters",fo.qt.map(q=>({v:q,l:q}))],
-            ["month","All Months",fo.mo.map(m=>({v:m,l:m}))],
-            ["spoc","All SPOCs",fo.sp.map(s=>({v:s,l:s}))],
-            ["priority","All Priority",fo.pr.map(p=>({v:p,l:p}))],
-            ["status","All Status",fo.st.map(s=>({v:s,l:s}))],
-            ["type","All Types",[{v:"idea",l:"Ideas"},{v:"bug",l:"Bugs"},{v:"g1",l:"G1"}]],
-          ].map(([key,ph,opts])=>(
-            <select key={key} value={filters[key as keyof typeof filters]}
-              onChange={e=>{
-                const val = e.target.value;
-                const n={...filters,[key]:val};
-                if(key==="fy"){n.qtr=""; n.month="";}
-                if(key==="qtr")n.month="";
-                setFilters(n);
-              }}
-              style={sel(false)}>
-              <option value="">{ph}</option>
-              {opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
-            </select>
-          ))}
-          <button onClick={rf} style={{height:32,padding:"0 12px",borderRadius:8,border:`1px solid ${cbd}`,background:"transparent",color:ts,fontSize:11,fontWeight:700,cursor:"pointer"}}>↺ Reset</button>
+        <div className="flex items-center gap-3 px-4 sm:pr-8 py-3">
+          <span className="text-[10px] font-bold uppercase tracking-widest shrink-0" style={{color:ts}}>Filters</span>
+          <div className="flex items-center gap-2">
+            {[["fy","All FY",fo.fyList.map(f=>({v:f,l:`FY ${f}`}))],
+              ["qtr","All Quarters",fo.qt.map(q=>({v:q,l:q}))],
+              ["month","All Months",fo.mo.map(m=>({v:m,l:m}))],
+              ["spoc","All SPOCs",fo.sp.map(s=>({v:s,l:s}))],
+              ["priority","All Priority",fo.pr.map(p=>({v:p,l:p}))],
+              ["status","All Status",fo.st.map(s=>({v:s,l:s}))],
+              ["type","All Types",[{v:"idea",l:"Ideas"},{v:"bug",l:"Bugs"},{v:"g1",l:"G1"}]],
+            ].map(([key,ph,opts])=>(
+              <select key={key} value={filters[key as keyof typeof filters]}
+                disabled={ibON}
+                className="h-9 px-3 rounded-lg border text-xs font-semibold outline-none transition-all focus:ring-2 focus:ring-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{background:sbg, borderColor:cbd, color:tp}}
+                onChange={e=>{
+                  const val = e.target.value;
+                  const n={...filters,[key]:val};
+                  if(key==="fy"){n.qtr=""; n.month="";}
+                  if(key==="qtr")n.month="";
+                  setFilters(n);
+                }}>
+                <option value="">{ph}</option>
+                {opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+              </select>
+            ))}
+            <button onClick={rf} disabled={ibON} className="h-9 px-4 rounded-lg border text-xs font-bold transition-all hover:bg-black/5 disabled:opacity-50 disabled:cursor-not-allowed shrink-0" style={{borderColor:cbd, background:"transparent", color:ts}}>↺ Reset</button>
+          </div>
         </div>
       </div>
 
-      <main style={{padding:"24px",maxWidth:1600,margin:"0 auto"}}>
+      <main className="p-3 sm:p-6 max-w-[1600px] mx-auto space-y-5">
         {/* STAT CARDS */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:16,marginBottom:20}}>
-          <StatCard dark={dark} label={ibON?"Total Tickets":"Historical Tickets"} vc={ibON?C_.primary:C_.warning}
-            value={ibON?M.openingBalance:pool.length} sub={ibON?`${M.openingBalance} Opening Balance`:`${pool.length} historical records`}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <StatCard dark={dark} label={ibON?"Bucket Load":"Total Tickets"} vc={ibON?C_.primary:C_.warning}
+            value={ibON?M.totalInBABucket:fil.length} sub={ibON?`${M.totalInBABucket} Active in Bucket`:`${fil.length} total records`}
             icon={<LayoutDashboard size={14} color={ibON?C_.primary:C_.warning}/>}
             bd2={ibON?(
-              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:140}}>
-                <div style={{fontSize:8,fontWeight:700,color:ts,textTransform:"uppercase",textAlign:"center",borderBottom:`1px solid ${cbd}`,paddingBottom:3,marginBottom:2}}>In Bucket</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr auto 1fr",gap:"2px 4px",alignItems:"center",textAlign:"center"}}>
-                  {["Total In BA Bucket","Closed Today","New Tickets"].map((l,i,a)=>[
-                    <span key={`l${i}`} style={{fontSize:7,fontWeight:700,color:ts,textTransform:"uppercase",lineHeight:1.2}}>{l}</span>,
-                    i<a.length-1&&<span key={`s${i}`} style={{fontSize:10,opacity:.3}}>|</span>
+              <div className="flex flex-col gap-2 min-w-[140px]">
+                <div className="text-[8px] font-bold uppercase tracking-wider text-center border-b pb-1.5" style={{color:ts, borderColor:cbd}}>In Bucket</div>
+                <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] gap-x-3 gap-y-1 items-center text-center">
+                  {["InB","ClsdT","NewT"].map((l,i,a)=>[
+                    <span key={`l${i}`} className="text-[7px] font-bold uppercase leading-tight" style={{color:ts}}>{l}</span>,
+                    i<a.length-1&&<span key={`s${i}`} className="text-[10px] opacity-20">|</span>
                   ])}
-                  <span style={{fontSize:13,fontWeight:700}}>{M.totalInBABucket}</span>
-                  <span style={{fontSize:13,opacity:.3}}>|</span>
-                  <span style={{fontSize:13,fontWeight:700,color:M.closedToday>0?C_.error:ts}}>{M.closedToday>0?`-${M.closedToday}`:"0"}</span>
-                  <span style={{fontSize:13,opacity:.3}}>|</span>
-                  <span style={{fontSize:13,fontWeight:700}}>{M.newToday}</span>
+                  <span className="text-sm font-black" style={{color:C_.primary}}>{M.totalInBABucket}</span>
+                  <span className="text-sm opacity-20">|</span>
+                  <span className="text-sm font-black" style={{color:M.closedToday>0?C_.error:ts}}>{M.closedToday>0?`-${M.closedToday}`:"0"}</span>
+                  <span className="text-sm opacity-20">|</span>
+                  <span className="text-sm font-black" style={{color:C_.success}}>{M.newToday}</span>
                 </div>
               </div>
             ):(
-              <div style={{display:"flex",flexDirection:"column",gap:4,minWidth:120}}>
-                <div style={{fontSize:8,fontWeight:700,color:ts,textTransform:"uppercase",textAlign:"center",borderBottom:`1px solid ${cbd}`,paddingBottom:3,marginBottom:2}}>Breakdown</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:"2px 6px",alignItems:"center",textAlign:"center"}}>
-                  <span style={{fontSize:7,fontWeight:700,color:ts,textTransform:"uppercase"}}>Closed</span>
-                  <span style={{fontSize:10,opacity:.3}}>|</span>
-                  <span style={{fontSize:7,fontWeight:700,color:ts,textTransform:"uppercase"}}>Resolved</span>
-                  <span style={{fontSize:13,fontWeight:700,color:C_.success}}>{M.closed}</span>
-                  <span style={{fontSize:13,opacity:.3}}>|</span>
-                  <span style={{fontSize:13,fontWeight:700,color:C_.violet}}>{M.resolved}</span>
+              <div className="flex flex-col gap-2 min-w-[140px]">
+                <div className="text-[8px] font-bold uppercase tracking-wider text-center border-b pb-1.5" style={{color:ts, borderColor:cbd}}>Status Mix</div>
+                <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] gap-x-3 gap-y-1 items-center text-center">
+                  {["Active","Closed","Reslv"].map((l,i,a)=>[
+                    <span key={`l${i}`} className="text-[7px] font-bold uppercase leading-tight" style={{color:ts}}>{l}</span>,
+                    i<a.length-1&&<span key={`s${i}`} className="text-[10px] opacity-20">|</span>
+                  ])}
+                  <span className="text-sm font-black" style={{color:C_.warning}}>{M.total}</span>
+                  <span className="text-sm opacity-20">|</span>
+                  <span className="text-sm font-black" style={{color:C_.success}}>{M.closed}</span>
+                  <span className="text-sm opacity-20">|</span>
+                  <span className="text-sm font-black" style={{color:C_.violet}}>{M.resolved}</span>
                 </div>
               </div>
             )}
           />
-          <StatCard dark={dark} label={ibON?"Ticket Status":"Closure Status"} sub={ibON?"Active Statuses":"Closed + Resolved"}
-            value={ibON?(M.open+M.pending+M.waiting):(M.closed+M.resolved)} vc={C_.warning}
-            icon={<Clock size={14} color={C_.warning}/>}
+          <StatCard dark={dark} label={ibON?"Active Workload":"Closure Status"} sub={ibON?"Active Statuses":"Closed + Resolved"}
+            value={ibON?M.total:(M.closed+M.resolved)} vc={C_.success}
+            icon={<Clock size={14} color={C_.success}/>}
             info={<div style={{fontSize:10}}><div style={{fontWeight:700,borderBottom:`1px solid ${cbd}`,paddingBottom:4,marginBottom:4}}>Status Legend</div>
-              {[["O","Open"],["P","Pending"],["W","Waiting On Third Party"],["R/C","Resolved / Closed"]].map(([k,v])=>(
+              {[["O","Open"],["P","Pending"],["W","Waiting On Third Party"],["B","Blank Status"],["R/C","Resolved / Closed"]].map(([k,v])=>(
                 <div key={k} style={{display:"flex",gap:6,marginBottom:2}}><span style={{fontWeight:700,minWidth:24}}>{k}:</span><span>{v}</span></div>))}</div>}
-            bd2={<div style={{display:"grid",gridTemplateColumns:"auto auto auto auto auto auto auto",gap:"3px 6px",alignItems:"center",textAlign:"center"}}>
-              {[["O",C_.warning],["P","#ea580c"],["W","#2563eb"],["R/C",C_.success]].flatMap(([l,col],i,a)=>[
-                <span key={l} style={{fontSize:8,fontWeight:700,color:col,textTransform:"uppercase"}}>{l}</span>,
-                i<a.length-1&&<span key={`s${i}`} style={{fontSize:10,opacity:.3}}>|</span>
+            bd2={<div className="grid grid-cols-[auto_auto_auto_auto_auto_auto_auto_auto_auto] gap-x-3 gap-y-1 items-center text-center">
+              {[["O",C_.warning],["P","#ea580c"],["W","#2563eb"],["B",ts],["R/C",C_.success]].flatMap(([l,col],i,a)=>[
+                <span key={l} className="text-[8px] font-bold uppercase" style={{color:col}}>{l}</span>,
+                i<a.length-1&&<span key={`s${i}`} className="text-[10px] opacity-20">|</span>
               ]).filter(Boolean)}
-              {[M.open,M.pending,M.waiting,M.closed+M.resolved].flatMap((v,i,a)=>[
-                <span key={`v${i}`} style={{fontSize:14,fontWeight:700}}>{v}</span>,
-                i<a.length-1&&<span key={`vs${i}`} style={{fontSize:14,opacity:.3}}>|</span>
+              {[M.open,M.pending,M.waiting,M.blank,M.closed+M.resolved].flatMap((v,i,a)=>[
+                <span key={`v${i}`} className="text-sm font-black" style={{color:[C_.warning,"#ea580c","#2563eb",ts,C_.success][i]}}>{v}</span>,
+                i<a.length-1&&<span key={`vs${i}`} className="text-sm opacity-20">|</span>
               ]).filter(Boolean)}
             </div>}
           />
           <StatCard dark={dark} label="Priority" sub="Urgent & High"
             value={M.priorityBreakdown.urgent+M.priorityBreakdown.high} vc={C_.error}
             icon={<AlertTriangle size={14} color={C_.error}/>}
-            bd2={<div style={{display:"grid",gridTemplateColumns:"auto auto auto auto auto auto auto",gap:"3px 6px",alignItems:"center",textAlign:"center"}}>
+            bd2={<div className="grid grid-cols-[auto_auto_auto_auto_auto_auto_auto] gap-x-3 gap-y-1 items-center text-center">
               {[["U",C_.error],["H",C_.warning],["M","#60a5fa"],["L",ts]].flatMap(([l,col],i,a)=>[
-                <span key={l} style={{fontSize:8,fontWeight:700,color:col,textTransform:"uppercase"}}>{l}</span>,
-                i<a.length-1&&<span key={`s${i}`} style={{fontSize:10,opacity:.3}}>|</span>
+                <span key={l} className="text-[8px] font-bold uppercase" style={{color:col}}>{l}</span>,
+                i<a.length-1&&<span key={`s${i}`} className="text-[10px] opacity-20">|</span>
               ]).filter(Boolean)}
               {[M.priorityBreakdown.urgent,M.priorityBreakdown.high,M.priorityBreakdown.medium,M.priorityBreakdown.low].flatMap((v,i,a)=>[
-                <span key={`v${i}`} style={{fontSize:14,fontWeight:700}}>{v}</span>,
-                i<a.length-1&&<span key={`vs${i}`} style={{fontSize:14,opacity:.3}}>|</span>
+                <span key={`v${i}`} className="text-sm font-black" style={{color:[C_.error,C_.warning,"#60a5fa",ts][i]}}>{v}</span>,
+                i<a.length-1&&<span key={`vs${i}`} className="text-sm opacity-20">|</span>
               ]).filter(Boolean)}
             </div>}
           />
           <StatCard dark={dark} label="Adherence Rate" vc={C_.violet}
             value={`${ibON?M.adherePct:M.adherePctHist}%`}
-            sub={ibON?`${M.adhered} adhered / ${M.openingBalance} total`:`${M.adhered} adhered / ${M.withTA} total`}
+            sub={ibON?`${M.openingBalance} Total`:`${M.withTA} Total`}
             icon={<TrendingUp size={14} color={C_.violet}/>}
-            bd2={<div style={{display:"grid",gridTemplateColumns:"auto auto auto",gap:"3px 8px",alignItems:"center",textAlign:"center"}}>
-              <span style={{fontSize:8,fontWeight:700,color:C_.success,textTransform:"uppercase"}}>Adhered</span>
-              <span style={{fontSize:10,opacity:.3}}>|</span>
-              <span style={{fontSize:8,fontWeight:700,color:C_.error,textTransform:"uppercase"}}>Delayed</span>
-              <span style={{fontSize:14,fontWeight:700}}>{M.adhered}</span>
-              <span style={{fontSize:14,opacity:.3}}>|</span>
-              <span style={{fontSize:14,fontWeight:700}}>{M.delayed}</span>
+            bd2={<div className="grid grid-cols-[auto_auto_auto] gap-x-4 gap-y-1 items-center text-center">
+              <span className="text-[8px] font-bold uppercase" style={{color:C_.success}}>Adhered</span>
+              <span className="text-[10px] opacity-20">|</span>
+              <span className="text-[8px] font-bold uppercase" style={{color:C_.error}}>Delayed</span>
+              <span className="text-sm font-black" style={{color:C_.success}}>{M.adhered}</span>
+              <span className="text-sm opacity-20">|</span>
+              <span className="text-sm font-black" style={{color:C_.error}}>{M.delayed}</span>
             </div>}
           />
         </div>
 
         {/* SPOC TABLE */}
-        <div style={{background:cbg,border:`1px solid ${cbd}`,borderRadius:12,boxShadow:"0 1px 3px rgba(0,0,0,.05)",overflow:"hidden",marginBottom:16}}>
-          <div style={{padding:"12px 16px",borderBottom:`1px solid ${cbd}`,background:dark?"#0f1220":abg2,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:13,fontWeight:700}}>SPOC Performance Summary</span>
-            <span style={{fontSize:11,color:ts,fontWeight:500}}>{SD.length} SPOCs · sorted by total</span>
+        <div className="rounded-2xl border shadow-sm overflow-hidden mb-5" style={{background:cbg, borderColor:cbd}}>
+          <div className="px-4 py-3 border-b flex items-center justify-between" style={{background:dark?"#0f1220":abg2, borderColor:cbd}}>
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-bold tracking-tight">SPOC Performance Summary</span>
+              <span className="text-[10px] font-medium uppercase tracking-wider" style={{color:ts}}>{SD.length} SPOCs · sorted by total load</span>
+            </div>
+            <div className="hidden sm:flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full" style={{background:C_.success}}/>
+                <span className="text-[10px] font-bold uppercase" style={{color:ts}}>Adhered</span>
+              </div>
+              <div className="flex items-center gap-1.5 ml-2">
+                <div className="w-2 h-2 rounded-full" style={{background:C_.error}}/>
+                <span className="text-[10px] font-bold uppercase" style={{color:ts}}>Delayed</span>
+              </div>
+            </div>
           </div>
-          <div style={{overflowX:"auto",maxHeight:420,overflowY:"auto"}}>
-            <table style={{width:"100%",borderCollapse:"collapse"}}>
-              <thead style={{position:"sticky",top:0,zIndex:10,background:cbg}}>
-                <tr style={{borderBottom:`2px solid ${cbd}`}}>
-                  {[["SPOC",""],["Total","r"],["Open",C_.warning],["Closed",C_.success],["Resolved",C_.violet],["Pending",C_.error],["Ideas",""],["Bugs",""],["G1",""],["Adhered",C_.success],["Delayed",C_.error],["Adhere %","r"]].map(([h,col])=>(
-                    <th key={h} style={{padding:"8px 14px",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".06em",whiteSpace:"nowrap",
-                      color:col&&col!=="r"?col:ts,textAlign:(col==="r"||["Total","Ideas","Bugs","G1","Adhere %"].includes(h))?"right":"left"}}>{h}</th>
+          <div className="overflow-x-auto max-h-[500px] overflow-y-auto no-scrollbar">
+            <table className="w-full border-separate border-spacing-0 text-left">
+              <thead className="sticky top-0 z-20" style={{background:cbg}}>
+                <tr style={{borderColor:cbd}}>
+                  {[["SPOC",""],["Total","r"],["Open",C_.warning],["Closed",C_.success],["Resolved",C_.violet],["Pending",C_.error],["Ideas",""],["Bugs",""],["G1",""],["Adhered",C_.success],["Delayed",C_.error],["Adherence","r"]].map(([h,col], idx)=>(
+                    <th key={h} className={`px-6 py-3 text-[10px] font-bold uppercase tracking-widest whitespace-nowrap border-b ${idx===0?"sticky left-0 z-30 border-r":""}`}
+                      style={{
+                        background:idx===0?cbg:undefined,
+                        borderColor:cbd,
+                        color:col&&col!=="r"?col:ts,
+                        textAlign:(col==="r"||["Total","Ideas","Bugs","G1","Adherence"].includes(h))?"right":"left"
+                      }}>{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody style={{borderColor:cbd}}>
                 {SD.map(s=>(
-                  <tr key={s.name} style={{borderBottom:`1px solid ${cbd}`}}>
-                    <td style={{padding:"8px 14px"}}>
-                      <span style={{padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:700,background:`${SC[s.name]||C_.primary}18`,color:SC[s.name]||C_.primary}}>{s.name}</span>
+                  <tr key={s.name} className="transition-colors hover:bg-black/5">
+                    <td className="px-6 py-4 sticky left-0 z-10 border-r border-b" style={{background:cbg, borderColor:cbd}}>
+                      <span className="px-3 py-1 rounded-lg text-[11px] font-bold tracking-tight" style={{background:`${SC[s.name]||C_.primary}18`,color:SC[s.name]||C_.primary}}>{s.name}</span>
                     </td>
                     {[s.total,s.open,s.closed,s.resolved,s.pending,s.ideas,s.bugs,s.g1,s.adhered,s.delayed].map((v,i)=>(
-                      <td key={i} style={{padding:"8px 14px",textAlign:"right",fontSize:12,fontWeight:i===0?700:500,
-                        color:i===1?C_.warning:i===2?C_.success:i===3?C_.violet:i===4?C_.error:i===8?C_.success:i===9?C_.error:tp}}>{v}</td>
+                      <td key={i} className="px-6 py-4 text-right text-xs font-semibold border-b"
+                        style={{
+                          borderColor:cbd,
+                          color:i===1?C_.warning:i===2?C_.success:i===3?C_.violet:i===4?C_.error:i===8?C_.success:i===9?C_.error:tp
+                        }}>{v}</td>
                     ))}
-                    <td style={{padding:"8px 14px",textAlign:"right"}}>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
-                        <div style={{width:48,height:4,background:dark?"#232a3e":"#e2e8f0",borderRadius:999,overflow:"hidden"}}>
-                          <div style={{height:"100%",width:`${s.pct}%`,background:abg(s.pct,C_),borderRadius:999}}/>
+                    <td className="px-6 py-4 text-right border-b" style={{borderColor:cbd}}>
+                      <div className="flex items-center justify-end gap-3">
+                        <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{background:dark?"#232a3e":"#e2e8f0"}}>
+                          <div className="h-full transition-all duration-500" style={{width:`${s.pct}%`,background:abg(s.pct,C_)}}/>
                         </div>
-                        <span style={{fontSize:11,fontWeight:700,color:abg(s.pct,C_),minWidth:28}}>{s.pct}%</span>
+                        <span className="text-[11px] font-bold min-w-[32px]" style={{color:abg(s.pct,C_)}}>{s.pct}%</span>
                       </div>
                     </td>
                   </tr>
                 ))}
-                <tr style={{background:dark?"#1a1f30":"#f8fafc",borderTop:`2px solid ${cbd}`,fontWeight:700}}>
-                  <td style={{padding:"10px 14px",fontSize:12}}>All SPOCs</td>
+              </tbody>
+              <tfoot className="sticky bottom-0 z-20 border-t" style={{background:dark?"#1a1f30":"#f8fafc", borderColor:cbd}}>
+                <tr className="font-bold">
+                  <td className="px-6 py-4 text-xs uppercase tracking-wider sticky left-0 z-10 border-r" style={{background:dark?"#1a1f30":"#f8fafc", borderColor:cbd}}>Total Aggregates</td>
                   {[SD.reduce((a,b)=>a+b.total,0),SD.reduce((a,b)=>a+b.open,0),SD.reduce((a,b)=>a+b.closed,0),SD.reduce((a,b)=>a+b.resolved,0),SD.reduce((a,b)=>a+b.pending,0),SD.reduce((a,b)=>a+b.ideas,0),SD.reduce((a,b)=>a+b.bugs,0),SD.reduce((a,b)=>a+b.g1,0),SD.reduce((a,b)=>a+b.adhered,0),SD.reduce((a,b)=>a+b.delayed,0)].map((v,i)=>(
-                    <td key={i} style={{padding:"10px 14px",textAlign:"right",fontSize:12,color:i===1?C_.warning:i===2?C_.success:i===3?C_.violet:i===4?C_.error:i===8?C_.success:i===9?C_.error:tp}}>{v}</td>
+                    <td key={i} className="px-6 py-4 text-right text-xs" style={{borderColor:cbd, color:i===1?C_.warning:i===2?C_.success:i===3?C_.violet:i===4?C_.error:i===8?C_.success:i===9?C_.error:tp}}>{v}</td>
                   ))}
-                  <td style={{padding:"10px 14px",textAlign:"right"}}>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8}}>
-                      <div style={{width:48,height:4,background:dark?"#232a3e":"#e2e8f0",borderRadius:999,overflow:"hidden"}}>
-                        <div style={{height:"100%",width:`${ibON?M.adherePct:M.adherePctHist}%`,background:C_.primary,borderRadius:999}}/>
+                  <td className="px-6 py-4 text-right" style={{borderColor:cbd}}>
+                    <div className="flex items-center justify-end gap-3">
+                      <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{background:dark?"#232a3e":"#e2e8f0"}}>
+                        <div className="h-full" style={{width:`${ibON?M.adherePct:M.adherePctHist}%`,background:C_.primary}}/>
                       </div>
-                      <span style={{fontSize:11,fontWeight:700,minWidth:28}}>{ibON?M.adherePct:M.adherePctHist}%</span>
+                      <span className="text-[11px] font-bold min-w-[32px]">{ibON?M.adherePct:M.adherePctHist}%</span>
                     </div>
                   </td>
                 </tr>
-              </tbody>
+              </tfoot>
             </table>
-            {fil.length===0&&<div style={{padding:"40px",textAlign:"center",color:ts,fontSize:14,fontWeight:500}}>No tickets match current filters</div>}
+            {fil.length===0&&<div className="py-20 text-center text-sm font-medium" style={{color:ts}}>No tickets match current filters</div>}
           </div>
         </div>
 
         {/* CHARTS TOGGLE */}
-        <button onClick={()=>setChartsOpen(o=>!o)} style={{width:"100%",background:cbg,border:`1px solid ${cbd}`,borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",marginBottom:chartsOpen?16:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <div style={{width:24,height:24,borderRadius:6,background:chartsOpen?C_.primary:`${C_.primary}18`,display:"flex",alignItems:"center",justifyContent:"center"}}>
-              <BarChart3 size={14} color={chartsOpen?"#fff":C_.primary}/>
+        <button onClick={()=>setChartsOpen(o=>!o)} className="w-full rounded-2xl border shadow-sm p-4 flex items-center justify-between transition-all hover:shadow-md active:scale-[0.99]" style={{background:cbg, borderColor:cbd}}>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors" style={{background:chartsOpen?C_.primary:`${C_.primary}18`}}>
+              <BarChart3 size={16} color={chartsOpen?"#fff":C_.primary}/>
             </div>
-            <span style={{fontSize:13,fontWeight:700}}>{chartsOpen?"Hide Charts":"Show Charts"}</span>
+            <span className="text-sm font-bold tracking-tight">{chartsOpen?"Hide Analytics Charts":"Show Analytics Charts"}</span>
           </div>
-          <ChevronDown size={16} style={{color:ts,transform:chartsOpen?"rotate(180deg)":"none",transition:"transform .3s"}}/>
+          <ChevronDown size={20} className="transition-transform duration-300" style={{color:ts, transform:chartsOpen?"rotate(180deg)":"none"}}/>
         </button>
 
         {chartsOpen&&(
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
-            <div style={{background:cbg,border:`1px solid ${cbd}`,borderRadius:12,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-              <div style={{display:"flex",borderBottom:`1px solid ${cbd}`,background:dark?"#0f1220":abg2}}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-2xl border shadow-sm overflow-hidden flex flex-col" style={{background:cbg, borderColor:cbd}}>
+              <div className="flex border-b" style={{background:dark?"#0f1220":abg2, borderColor:cbd}}>
                 {[["load","📊 Ticket Load"],["adhere","⏱ Adherence"],["kkj","✅ KKJ Quality"]].map(([t,l])=>(
-                  <button key={t} onClick={()=>setActiveTab(t)} style={tb(activeTab===t)}>{l}</button>
+                  <button key={t} onClick={()=>setActiveTab(t)} className="flex-1 py-3 text-[10px] font-bold tracking-wider uppercase transition-all border-b-2" style={{borderColor:activeTab===t?C_.primary:"transparent", color:activeTab===t?C_.primary:ts}}>{l}</button>
                 ))}
               </div>
-              <div style={{padding:16,flex:1,minHeight:280}}>
-                {activeTab==="load"&&(
-                  <ResponsiveContainer width="100%" height={260}>
-                    <PieChart>
-                      <Pie data={SD} dataKey="total" nameKey="name" cx="50%" cy="50%" outerRadius={90}
-                        label={({name,percent})=>`${name} ${Math.round(percent*100)}%`} labelLine={false}>
-                        {SD.map((e,i)=><Cell key={i} fill={SC[e.name]||C_.primary}/>)}
-                      </Pie>
-                      <Tooltip contentStyle={TT}/><Legend iconType="circle" wrapperStyle={{fontSize:10,fontWeight:700}}/>
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-                {activeTab==="adhere"&&(
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={SD} margin={{top:10,bottom:10}}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={cbd}/>
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize:10,fontWeight:700,fill:ts}}/>
-                      <YAxis axisLine={false} tickLine={false} tick={{fontSize:10,fill:ts}}/>
-                      <Tooltip contentStyle={TT}/><Legend iconType="circle" wrapperStyle={{fontSize:10,fontWeight:700}}/>
-                      <Bar dataKey="adhered" name="Adhered" fill={C_.success} radius={[4,4,0,0]} barSize={20}/>
-                      <Bar dataKey="delayed" name="Delayed" fill={C_.error} radius={[4,4,0,0]} barSize={20}/>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-                {activeTab==="kkj"&&(
-                  <div style={{display:"flex",flexDirection:"column",height:"100%"}}>
-                    <div style={{display:"flex",gap:8,marginBottom:12}}>
-                      {[["idea","Ideas"],["ticket","Tickets"]].map(([t,l])=>(
-                        <button key={t} onClick={()=>setKkjType(t)} style={{padding:"4px 14px",borderRadius:999,fontSize:10,fontWeight:700,border:`1px solid ${kkjType===t?"transparent":cbd}`,background:kkjType===t?C_.primary:"transparent",color:kkjType===t?"#fff":ts,cursor:"pointer"}}>{l}</button>
-                      ))}
-                    </div>
-                    <ResponsiveContainer width="100%" height={210}>
-                      <BarChart data={KD} margin={{top:10,bottom:10}}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={cbd}/>
-                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize:10,fontWeight:700,fill:ts}}/>
-                        <YAxis domain={[0,100]} axisLine={false} tickLine={false} tick={{fontSize:10,fill:ts}}/>
-                        <Tooltip contentStyle={TT}/><Legend iconType="circle" wrapperStyle={{fontSize:10,fontWeight:700}}/>
-                        <Bar dataKey="Pass" name="Pass %" fill={C_.success} radius={[4,4,0,0]} barSize={20}/>
-                        <Bar dataKey="Fail" name="Fail %" fill={C_.error} radius={[4,4,0,0]} barSize={20}/>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+              <div className="p-4 flex-1 min-h-[300px] flex items-center justify-center">
+                {SD.length===0?<div style={{color:ts,fontSize:12,fontWeight:500}}>No data available for charts</div>:(
+                  <>
+                    {activeTab==="load"&&(
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart>
+                          <Pie data={SD} dataKey="total" nameKey="name" cx="50%" cy="50%" outerRadius={90}
+                            label={({name,percent})=>`${name} ${Math.round(percent*100)}%`} labelLine={false}>
+                            {SD.map((e,i)=><Cell key={i} fill={SC[e.name]||C_.primary}/>)}
+                          </Pie>
+                          <Tooltip contentStyle={TT} itemStyle={{color:tp}}/><Legend iconType="circle" wrapperStyle={{fontSize:10,fontWeight:700}}/>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
+                    {activeTab==="adhere"&&(
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart data={SD} margin={{top:10,bottom:10}}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={cbd}/>
+                          <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize:10,fontWeight:700,fill:ts}}/>
+                          <YAxis axisLine={false} tickLine={false} tick={{fontSize:10,fill:ts}}/>
+                          <Tooltip contentStyle={TT} itemStyle={{color:tp}}/><Legend iconType="circle" wrapperStyle={{fontSize:10,fontWeight:700}}/>
+                          <Bar dataKey="adhered" name="Adhered" fill={C_.success} radius={[4,4,0,0]} barSize={20}/>
+                          <Bar dataKey="delayed" name="Delayed" fill={C_.error} radius={[4,4,0,0]} barSize={20}/>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                    {activeTab==="kkj"&&(
+                      <div className="flex flex-col h-full w-full gap-4">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] font-bold uppercase tracking-wider transition-colors" style={{color:kkjType==="ticket"?tp:ts}}>Tickets</span>
+                          <button 
+                            onClick={()=>setKkjType(kkjType==="idea"?"ticket":"idea")} 
+                            className="relative w-10 h-5 rounded-full transition-colors duration-200 shrink-0" 
+                            style={{background:kkjType==="idea"?C_.primary:(dark?"#2a3050":"#cbd5e1")}}>
+                            <div className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200" style={{transform:kkjType==="idea"?"translateX(20px)":"none"}}/>
+                          </button>
+                          <span className="text-[10px] font-bold uppercase tracking-wider transition-colors" style={{color:kkjType==="idea"?tp:ts}}>Ideas</span>
+                        </div>
+                        <div className="flex-1 min-h-[240px]">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={KD} margin={{top:10,bottom:10}}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={cbd}/>
+                              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize:10,fontWeight:700,fill:ts}}/>
+                              <YAxis domain={[0,100]} axisLine={false} tickLine={false} tick={{fontSize:10,fill:ts}}/>
+                              <Tooltip contentStyle={TT} itemStyle={{color:tp}}/><Legend iconType="circle" wrapperStyle={{fontSize:10,fontWeight:700}}/>
+                              <Bar dataKey="Pass" name="Pass %" fill={C_.success} radius={[4,4,0,0]} barSize={20}/>
+                              <Bar dataKey="Fail" name="Fail %" fill={C_.error} radius={[4,4,0,0]} barSize={20}/>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
-            <div style={{background:cbg,border:`1px solid ${cbd}`,borderRadius:12,overflow:"hidden",display:"flex",flexDirection:"column"}}>
-              <div style={{padding:"12px 16px",borderBottom:`1px solid ${cbd}`,background:dark?"#0f1220":abg2,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                <span style={{fontSize:13,fontWeight:700}}>Ticket Volume · Monthly Trend</span>
-                <span style={{fontSize:11,color:ts,fontWeight:500}}>{TD.length} months</span>
+            <div className="rounded-2xl border shadow-sm overflow-hidden flex flex-col" style={{background:cbg, borderColor:cbd}}>
+              <div className="px-4 py-3 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3" style={{background:dark?"#0f1220":abg2, borderColor:cbd}}>
+                <div className="flex items-center gap-2">
+                  <TrendingUp size={16} style={{color:C_.primary}}/>
+                  <span className="text-sm font-bold tracking-tight">Ticket Volume · {ibON ? "Weekly" : "Monthly"} Trend</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer group">
+                    <div className="relative flex items-center">
+                      <input 
+                        type="checkbox" 
+                        checked={showStatusTrend} 
+                        onChange={(e) => setShowStatusTrend(e.target.checked)}
+                        className="sr-only"
+                      />
+                      <div className={`w-8 h-4 rounded-full transition-colors duration-200 ${showStatusTrend ? C_.primary : (dark ? "#2a3050" : "#cbd5e1")}`} />
+                      <div className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform duration-200 ${showStatusTrend ? "translate-x-4" : ""}`} />
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider" style={{color: showStatusTrend ? tp : ts}}>Show Status Breakdown</span>
+                  </label>
+                </div>
               </div>
-              <div style={{padding:16,flex:1,minHeight:280}}>
-                <ResponsiveContainer width="100%" height={260}>
+              <div className="p-4 flex-1 min-h-[300px]">
+                <ResponsiveContainer width="100%" height={280}>
                   <AreaChart data={TD} margin={{top:10,right:10,left:0,bottom:0}}>
                     <defs>
                       <linearGradient id="gT" x1="0" y1="0" x2="0" y2="1">
@@ -436,14 +541,35 @@ export default function App(){
                         <stop offset="95%" stopColor={C_.primary} stopOpacity={0}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={cbd}/>
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize:9,fontWeight:700,fill:ts}}/>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={cbd} opacity={0.5}/>
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fontSize:8,fontWeight:700,fill:ts}} interval={ibON ? 1 : 0}/>
                     <YAxis axisLine={false} tickLine={false} tick={{fontSize:10,fill:ts}}/>
-                    <Tooltip contentStyle={TT}/><Legend iconType="circle" wrapperStyle={{fontSize:10,fontWeight:700}}/>
-                    <Area type="monotone" dataKey="Total" stroke={C_.primary} fillOpacity={1} fill="url(#gT)" strokeWidth={2}/>
-                    <Line type="monotone" dataKey="Closed" stroke={C_.success} strokeWidth={2} dot={{r:2}}/>
-                    <Line type="monotone" dataKey="Open" stroke={C_.warning} strokeWidth={2} dot={{r:2}} strokeDasharray="4 4"/>
-                    <Line type="monotone" dataKey="Resolved" stroke={C_.violet} strokeWidth={2} dot={{r:2}}/>
+                    <Tooltip 
+                      contentStyle={{...TT, padding: '8px 12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} 
+                      itemStyle={{fontSize: 11, fontWeight: 600}}
+                      cursor={{stroke: cbd, strokeWidth: 1}}
+                    />
+                    <Legend iconType="circle" wrapperStyle={{fontSize:10,fontWeight:700, paddingTop: 10}}/>
+                    
+                    {vis.InBucket && (
+                      <Area type="monotone" dataKey="InBucket" name="In Bucket" stroke={C_.primary} fillOpacity={0.1} fill="url(#gT)" strokeWidth={3} animationDuration={500}/>
+                    )}
+                    {vis.OpeningBalance && (
+                      <Line type="monotone" dataKey="OpeningBalance" name="Opening Balance" stroke={C_.warning} strokeWidth={2} dot={{r:3, fill: C_.warning}} animationDuration={500}/>
+                    )}
+                    {vis.OutBucket && (
+                      <Line type="monotone" dataKey="OutBucket" name="Out of Bucket" stroke={C_.error} strokeWidth={2} dot={{r:2}} strokeDasharray="5 5" animationDuration={500}/>
+                    )}
+                    
+                    {showStatusTrend && (
+                      <>
+                        <Line type="monotone" dataKey="O" name="Open (O)" stroke={C_.warning} strokeWidth={1.5} dot={{r:2, fill: C_.warning}} animationDuration={500}/>
+                        <Line type="monotone" dataKey="P" name="Pending (P)" stroke="#ea580c" strokeWidth={1.5} dot={{r:2, fill: "#ea580c"}} animationDuration={500}/>
+                        <Line type="monotone" dataKey="W" name="Waiting (W)" stroke="#2563eb" strokeWidth={1.5} dot={{r:2, fill: "#2563eb"}} animationDuration={500}/>
+                        <Line type="monotone" dataKey="B" name="Blank (B)" stroke={ts} strokeWidth={1.5} dot={{r:2, fill: ts}} animationDuration={500}/>
+                        <Line type="monotone" dataKey="RC" name="Res/Clsd (R/C)" stroke={C_.success} strokeWidth={1.5} dot={{r:2, fill: C_.success}} animationDuration={500}/>
+                      </>
+                    )}
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
@@ -451,12 +577,14 @@ export default function App(){
           </div>
         )}
       </main>
-      <footer style={{padding:"24px",textAlign:"center",borderTop:`1px solid ${cbd}`,marginTop:24,color:ts}}>
-        <p style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".1em"}}>
-          BA Tickets Analytics Dashboard · {SHEET_NAME} · {tickets.length} rows
+      <footer className="py-6 px-8 text-center border-t mt-8" style={{borderColor:cbd, color:ts}}>
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-60">
+          BA Tickets Analytics Dashboard · {SHEET_NAME} · {tickets.length} records
         </p>
       </footer>
-      <style>{`*{box-sizing:border-box;margin:0;padding:0;} @keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <style>{`
+        @keyframes spin{to{transform:rotate(360deg)}}
+      `}</style>
     </div>
   );
 }
